@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 import scipy.special as special
 import scipy.integrate as integrate
-plot_flag = True
+plot_flag = False
 
 
 def square_bracket_operator(alpha, grade):  # both integer numbers with alpha >= grade-1.

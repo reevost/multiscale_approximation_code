@@ -226,3 +226,6 @@ fabric.properties
 
 # Mac related stuff
 .DS_Store
+
+# Project related stuff
+images/

@@ -5,6 +5,7 @@ import scipy
 # from scipy import sparse
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import os
 
 import halton_points
 import wendland_functions
@@ -14,6 +15,7 @@ plot_flag = False
 save = True
 # Original paper: Multiscale analysis in Sobolev spaces on bounded domains - Holger Wendland
 tic_start = time.perf_counter()
+cwd = os.getcwd()  # get the working directory
 
 
 def data_multilevel_structure(data, number_of_levels=4, mu=0.5, starting_mesh_norm=None, starting_data_point=None, nest_=True):
@@ -100,7 +102,7 @@ true_function: Callable[[Any, Any], Any] = lambda lx, ly: np.exp(-lx ** 4) * lx 
 true_f_in_domain = true_function(domain_meshed_x, domain_meshed_y)
 
 # given the samples on the domain we build the nested sequence of sets
-number_of_levels_ = 6  # INPUT
+number_of_levels_ = 4  # INPUT
 x, y = halton_points.halton_sequence(10000, 2)  # INPUT - data sites
 sampled_points = np.concatenate((np.array([x]).T, np.array([y]).T), axis=1)
 
@@ -176,7 +178,7 @@ tic_2 = time.perf_counter()
 
 chi_matrix = np.concatenate(tuple(cf_list+[np.eye(len(nest[-1]))]), axis=1)
 for i_temp in np.arange(len(nest)-1, 0, -1):
-    temp_block = np.concatenate(tuple([cf[:len(nest[i_temp-1]), :] for cf in cf_list[:i_temp]]+[np.zeros((len(nest[i_temp-1]), sum([len(nest[i_ttemp]) for i_ttemp in np.arange(i_temp, len(nest))])))]), axis=1)
+    temp_block = np.concatenate(tuple([cf[:len(nest[i_temp-1]), :] for cf in cf_list[:i_temp]] + [np.zeros((len(nest[i_temp-1]), sum([len(nest[i_temp_]) for i_temp_ in np.arange(i_temp, len(nest))])))]), axis=1)
     chi_matrix = np.concatenate((temp_block, chi_matrix), axis=0)
 
 inv_chi_matrix = np.linalg.inv(chi_matrix)
@@ -261,7 +263,7 @@ for i_temp in np.arange(len(nest)):
         ax4.text(i_temp, j_temp, str(c), va="center", ha="center")
 
 if save:
-    plt.savefig("/app/home/lotf/Schreibtisch/multiscale_approximation/multiscale_approximation_code/images/%d/chi_norm_matrix_comparison.png" % number_of_levels_, transparent=False)
+    plt.savefig(cwd+"/images/%d/chi_norm_matrix_comparison.png" % number_of_levels_, transparent=False)
 plt.show()
 
 # define the plot figure - MATRICES SIZE VISUALIZATION
@@ -294,7 +296,7 @@ for r in inv_rectangles:
     # ax4.annotate(format(norm_inv_matrix[r[0], r[1]], ".2f"), (cx, cy), color="k", weight="bold", fontsize=6, ha="center", va="center")
 
 if save:
-    plt.savefig("/app/home/lotf/Schreibtisch/multiscale_approximation/multiscale_approximation_code/images/%d/chi_norm_matrix_size.png" % number_of_levels_, transparent=False)
+    plt.savefig(cwd+"/images/%d/chi_norm_matrix_size.png" % number_of_levels_, transparent=False)
 plt.show()
 
 # plots of the norm compared with theoretical results
@@ -315,7 +317,7 @@ ax2.semilogy(np.arange(1, number_of_levels_+1), chi_matrix_norm_vector, "b--", l
 ax2.semilogy(np.arange(1, number_of_levels_+1), [mu_coefficient**(-d*n/2) for n in np.arange(1, number_of_levels_+1)], "r--", label="norm bound")
 ax2.legend()
 if save:
-    plt.savefig("/app/home/lotf/Schreibtisch/multiscale_approximation/multiscale_approximation_code/images/%d/chi_matrix_norm.png" % number_of_levels_, transparent=False)
+    plt.savefig(cwd+"/images/%d/chi_matrix_norm.png" % number_of_levels_, transparent=False)
 plt.show()
 
 # INVERSE CHI MATRIX
@@ -331,7 +333,7 @@ ax2.semilogy(np.arange(1, number_of_levels_+1), inv_chi_matrix_norm_vector, "b--
 ax2.semilogy(np.arange(1, number_of_levels_+1), [mu_coefficient**(-n*(d+d_phi)/2) for n in np.arange(1, number_of_levels_+1)], "r--", label="norm bound")
 ax2.legend()
 if save:
-    plt.savefig("/app/home/lotf/Schreibtisch/multiscale_approximation/multiscale_approximation_code/images/%d/inverse_chi_matrix_norm.png" % number_of_levels_, transparent=False)
+    plt.savefig(cwd+"/images/%d/inverse_chi_matrix_norm.png" % number_of_levels_, transparent=False)
 plt.show()
 
 # CONDITION NUMBER
@@ -347,7 +349,7 @@ ax2.semilogy(np.arange(1, number_of_levels_+1), cond_number_chi_matrix, "b--", l
 ax2.semilogy(np.arange(1, number_of_levels_+1), [mu_coefficient**(-n*(d+d_phi/2)) for n in np.arange(1, number_of_levels_+1)], "r--", label="K bound")
 ax2.legend()
 if save:
-    plt.savefig("/app/home/lotf/Schreibtisch/multiscale_approximation/multiscale_approximation_code/images/%d/condition_number_chi_matrix.png" % number_of_levels_, transparent=False)
+    plt.savefig(cwd+"/images/%d/condition_number_chi_matrix.png" % number_of_levels_, transparent=False)
 plt.show()
 
 # evaluate the singular values
@@ -368,7 +370,7 @@ for n in np.arange(number_of_levels_):
     ax.plot(np.arange(len(svd_v)), np.ones(len(svd_v)), "r--")
     ax.plot(np.arange(len(svd_v)), np.ones(len(svd_v))*10, "r--")
     if save:
-        plt.savefig("/app/home/lotf/Schreibtisch/multiscale_approximation/multiscale_approximation_code/images/%d/singular_values_level_%d.png" % (number_of_levels_, n), transparent=False)
+        plt.savefig(cwd+"/images/%d/singular_values_level_%d.png" % (number_of_levels_, n), transparent=False)
     plt.show()
 
 
@@ -383,5 +385,5 @@ ax2.plot(np.arange(1, number_of_levels_+1), high_sv_count_1, "b-", label="eps = 
 ax3.plot(np.arange(1, number_of_levels_+1), high_sv_count_01, "b-", label="eps = 0.1"), ax3.legend()
 ax4.plot(np.arange(1, number_of_levels_+1), high_sv_count_10, "b-", label="eps = 10"), ax4.legend()
 if save:
-    plt.savefig("/app/home/lotf/Schreibtisch/multiscale_approximation/multiscale_approximation_code/images/%d/number_of_singular_values_greater_than_eps.png" % number_of_levels_, transparent=False)
+    plt.savefig(cwd+"/images/%d/number_of_singular_values_greater_than_eps.png" % number_of_levels_, transparent=False)
 plt.show()

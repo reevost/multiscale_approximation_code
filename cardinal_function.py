@@ -1,5 +1,3 @@
-from typing import Callable, Any
-
 import numpy as np
 import scipy
 # from scipy import sparse
@@ -18,7 +16,7 @@ tic_start = time.perf_counter()
 cwd = os.getcwd()  # get the working directory
 
 
-def data_multilevel_structure(data, number_of_levels=4, mu=0.5, starting_mesh_norm=None, starting_data_point=None,
+def data_multilevel_structure(data, number_of_levels_=4, mu=0.5, starting_mesh_norm=None, starting_data_point=None,
                               nest_=True):
     # data is the set of data points from which we want to build our nested sequence of data sets.
     # number_of_levels is the number of level on which we want to split our data.
@@ -56,7 +54,7 @@ def data_multilevel_structure(data, number_of_levels=4, mu=0.5, starting_mesh_no
     data_nest_list += [np.array(new_data)]
     print("The number of points in the level 1 is ", len(new_data))
 
-    for j_ in np.arange(1, number_of_levels):
+    for j_ in np.arange(1, number_of_levels_):
         # update the mesh norm
         mesh_norm *= mu
 
@@ -112,7 +110,7 @@ def true_function(*domain_points):
 
 
 # given the samples on the domain we build the nested sequence of sets, and eventually save them to a file
-number_of_levels_ = 6  # INPUT
+number_of_levels = 6  # INPUT
 if d == 2:
     x, y = halton_points.halton_sequence(10000, 2)  # INPUT - data sites
     sampled_points = np.concatenate((np.array([x]).T, np.array([y]).T), axis=1)
@@ -132,13 +130,12 @@ else:  # we suppose to handle just dim = 2 or 3 for now.
 
 
 true_f_in_domain = true_function(domain_meshed_x, domain_meshed_y)
-global mesh_norm_0, mu_coefficient
 mesh_norm_0, mu_coefficient = np.min([np.max(sampled_points, axis=0)[0] - np.min(sampled_points, axis=0)[0],
                                       np.max(sampled_points, axis=0)[1] - np.min(sampled_points, axis=0)[
                                           1]]) / 8, 0.5  # INPUT
 
-nest = data_multilevel_structure(sampled_points, number_of_levels=number_of_levels_, starting_mesh_norm=mesh_norm_0, mu=mu_coefficient, nest_=True)
-
+nest = data_multilevel_structure(sampled_points, number_of_levels_=number_of_levels, starting_mesh_norm=mesh_norm_0, mu=mu_coefficient, nest_=True)
+mesh_norm_list = [mesh_norm_0 * mu_coefficient ** level for level in range(number_of_levels)]
 gamma = 1  # INPUT
 nu_coefficient = 1 / mesh_norm_0  # INPUT in this case nu has the highest possible value
 # nu_coefficient = gamma/mu_coefficient  # INPUT in this case nu has the lowest possible value
@@ -147,23 +144,23 @@ print("evaluating the nest of sets and all the parameters in", time.perf_counter
 # nest plot
 color_map = plt.get_cmap("viridis")
 if plot_flag:
-    for i in np.arange(number_of_levels_):
+    for i in np.arange(number_of_levels):
         plt.figure(figsize=[7, 7])
-        plt.scatter(nest[i][:, 0], nest[i][:, 1], color=color_map(np.linspace(0, .8, number_of_levels_))[i])
+        plt.scatter(nest[i][:, 0], nest[i][:, 1], color=color_map(np.linspace(0, .8, number_of_levels))[i])
         plt.xlim([0, 1])
         plt.ylim([0, 1])
         plt.title("subset $X_%d$" % (i + 1))
         plt.show()
 
-A_v = []  # testing phase only
 
-
-def cardinal_function(nested_set, nu, wendland_coefficients=(1, 3)):  # works only in nested case up to now
+def cardinal_function(nested_set, nu, h_list, wendland_coefficients=(1, 3)):  # works only in nested case up to now
     # Function that makes the interpolation using the multiscale approximation technique (see holger paper)
     # PARAMETERS ========================================================================================================================
     # wendland_coefficients: tuple. A couple of integers (n, k) associated with the wanted Wendland compactly supported radial basis function phi_(n, k).
     #
     # nu: float. The coefficient that define the radius (delta) of the compactly supported rbf, delta_j = nu * mu_j, where mu_j is the mesh norm at the level j.
+    #
+    # h_list: list with length equal to the nested set length. h_list[i] contains the i-th fill_distance value related to the i-th set in nest.
     #
     # nested set: list of ndarray. The list of the nested sequence of sets X_1, ..., X_n.
     # RETURNS ============================================================================================================================
@@ -171,41 +168,33 @@ def cardinal_function(nested_set, nu, wendland_coefficients=(1, 3)):  # works on
 
     # At a certain point the controls for the parameters types and shapes should be included.
 
-    number_of_levels = len(nested_set)
+    total_number_of_levels = len(nested_set)
     tic = time.perf_counter()
     finest_set = nest[-1]
     evaluated_cardinal_function = []
-    global mesh_norm_0, mu_coefficient, A_v
-    sub_level_set = nest[-1]
 
-    for level in np.arange(number_of_levels - 1):
+    for level in np.arange(total_number_of_levels - 1):
         sub_level_set = nest[level]
         # mesh_norm_j = halton_points.fill_distance(sub_level_set, 10**-6)  # TO DO LIST
         # delta_j = mesh_norm_j * nu  # scaling parameter of the compactly supported rbf
 
-        delta_j = nu * mesh_norm_0 * mu_coefficient ** level
+        delta_j = nu * h_list[level]
 
         # evaluate A_level and B_nk for k=level.
         # the compactly supported rbf chosen is delta_j^-d * Phi(||x-y||/delta_j), where Phi is a wendland function
         A_j = np.array([[(delta_j ** -len(sub_level_set[0])) * wendland_functions.wendland_function(
             np.linalg.norm(a - b) / delta_j, k=wendland_coefficients[0], d=wendland_coefficients[1]) for a in
                          sub_level_set] for b in sub_level_set])  # should be parallelized
-        A_v += [A_j]
         B_nj = np.array([[(delta_j ** -len(sub_level_set[0])) * wendland_functions.wendland_function(
             np.linalg.norm(a - b) / delta_j, k=wendland_coefficients[0], d=wendland_coefficients[1]) for a in
                           finest_set] for b in sub_level_set])  # should be parallelized
         evaluated_cardinal_function += [(np.linalg.inv(A_j) @ B_nj).T]
         print("The time needed to evaluate the functions at step", level + 1, "is", time.perf_counter() - tic,
               "seconds")
-    delta_j = nu * mesh_norm_0 * mu_coefficient ** (number_of_levels - 1)
-    A_j = np.array([[(delta_j ** -len(sub_level_set[0])) * wendland_functions.wendland_function(
-        np.linalg.norm(a - b) / delta_j, k=wendland_coefficients[0], d=wendland_coefficients[1]) for a in sub_level_set]
-                    for b in sub_level_set])  # should be parallelized
-    A_v += [A_j]
     return evaluated_cardinal_function
 
 
-cf_list = cardinal_function(nested_set=nest, nu=nu_coefficient)
+cf_list = cardinal_function(nested_set=nest, h_list=mesh_norm_list, nu=nu_coefficient)
 tau = 3 * 0.5 + 1 + 0.5  # wendland associated H^tau space tau = d/2 + k + 1/2, with wendland_function(k,d)
 tic_2 = time.perf_counter()
 
@@ -331,7 +320,7 @@ for i_temp in np.arange(len(nest)):
         ax4.text(i_temp, j_temp, str(c), va="center", ha="center")
 
 if save:
-    plt.savefig(cwd + "/images/%d/chi_norm_matrix_comparison.png" % number_of_levels_, transparent=False)
+    plt.savefig(cwd + "/images/%d/chi_norm_matrix_comparison.png" % number_of_levels, transparent=False)
 plt.show()
 
 # 1 and infinity norm bounds
@@ -373,7 +362,7 @@ for i_temp in np.arange(len(nest)):
         ax4.text(i_temp, j_temp, str(c), va="center", ha="center")
 
 if save:
-    plt.savefig(cwd + "/images/%d/inv_chi_norm_matrix_1_inf_comparison.png" % number_of_levels_, transparent=False)
+    plt.savefig(cwd + "/images/%d/inv_chi_norm_matrix_1_inf_comparison.png" % number_of_levels, transparent=False)
 plt.show()
 
 if plot_flag:  # other plots - matrix size and singular values
@@ -405,7 +394,7 @@ if plot_flag:  # other plots - matrix size and singular values
         # ax4.annotate(format(norm_inv_matrix[r[0], r[1]], ".2f"), (cx, cy), color="k", weight="bold", fontsize=6, ha="center", va="center")
 
     if save:
-        plt.savefig(cwd + "/images/%d/chi_norm_matrix_size.png" % number_of_levels_, transparent=False)
+        plt.savefig(cwd + "/images/%d/chi_norm_matrix_size.png" % number_of_levels, transparent=False)
     plt.show()
 
     # plots of the norm compared with theoretical results
@@ -420,15 +409,15 @@ if plot_flag:  # other plots - matrix size and singular values
     ax2 = fig2.add_subplot(222)
     ax.title.set_text("chi matrix norm")
     ax2.title.set_text("log plot")
-    ax.plot(np.arange(1, number_of_levels_ + 1), chi_matrix_norm_vector, "b-", label="computed norm")
-    ax.plot(np.arange(1, number_of_levels_ + 1),
-            [mu_coefficient ** (-d * n / 2) for n in np.arange(1, number_of_levels_ + 1)], "r-",
+    ax.plot(np.arange(1, number_of_levels + 1), chi_matrix_norm_vector, "b-", label="computed norm")
+    ax.plot(np.arange(1, number_of_levels + 1),
+            [mu_coefficient ** (-d * n / 2) for n in np.arange(1, number_of_levels + 1)], "r-",
             label="theoretical norm bound")
     ax.legend()
     ax.set_xlabel('number of steps')
-    ax2.semilogy(np.arange(1, number_of_levels_ + 1), chi_matrix_norm_vector, "b--", label="computed norm")
-    ax2.semilogy(np.arange(1, number_of_levels_ + 1),
-                 [mu_coefficient ** (-d * n / 2) for n in np.arange(1, number_of_levels_ + 1)], "r--",
+    ax2.semilogy(np.arange(1, number_of_levels + 1), chi_matrix_norm_vector, "b--", label="computed norm")
+    ax2.semilogy(np.arange(1, number_of_levels + 1),
+                 [mu_coefficient ** (-d * n / 2) for n in np.arange(1, number_of_levels + 1)], "r--",
                  label="theoretical norm bound")
     ax2.legend()
     ax2.set_xlabel('number of steps')
@@ -451,7 +440,7 @@ if plot_flag:  # other plots - matrix size and singular values
             ax4.text(i_temp, j_temp, str(c), va="center", ha="center")
 
     if save:
-        plt.savefig(cwd + "/images/%d/chi_matrix_norm.png" % number_of_levels_, transparent=False)
+        plt.savefig(cwd + "/images/%d/chi_matrix_norm.png" % number_of_levels, transparent=False)
     plt.show()
 
     # INVERSE CHI MATRIX
@@ -460,15 +449,15 @@ if plot_flag:  # other plots - matrix size and singular values
     ax2 = fig3.add_subplot(222)
     ax.title.set_text("inverse chi matrix norm")
     ax2.title.set_text("log plot")
-    ax.plot(np.arange(1, number_of_levels_ + 1), inv_chi_matrix_norm_vector, "b-", label="computed norm")
-    ax.plot(np.arange(1, number_of_levels_ + 1),
-            [mu_coefficient ** (-d * n) for n in np.arange(1, number_of_levels_ + 1)], "r-",
+    ax.plot(np.arange(1, number_of_levels + 1), inv_chi_matrix_norm_vector, "b-", label="computed norm")
+    ax.plot(np.arange(1, number_of_levels + 1),
+            [mu_coefficient ** (-d * n) for n in np.arange(1, number_of_levels + 1)], "r-",
             label="theoretical norm bound")
     ax.legend()
     ax.set_xlabel('number of steps')
-    ax2.semilogy(np.arange(1, number_of_levels_ + 1), inv_chi_matrix_norm_vector, "b--", label="computed norm")
-    ax2.semilogy(np.arange(1, number_of_levels_ + 1),
-                 [mu_coefficient ** (-n * d) for n in np.arange(1, number_of_levels_ + 1)], "r--",
+    ax2.semilogy(np.arange(1, number_of_levels + 1), inv_chi_matrix_norm_vector, "b--", label="computed norm")
+    ax2.semilogy(np.arange(1, number_of_levels + 1),
+                 [mu_coefficient ** (-n * d) for n in np.arange(1, number_of_levels + 1)], "r--",
                  label="theoretical norm bound")
     ax2.legend()
     ax2.set_xlabel('number of steps')
@@ -490,7 +479,7 @@ if plot_flag:  # other plots - matrix size and singular values
             c = format(norm_inv_matrix_bound[j_temp][i_temp], ".3f")
             ax4.text(i_temp, j_temp, str(c), va="center", ha="center")
     if save:
-        plt.savefig(cwd + "/images/%d/inverse_chi_matrix_norm.png" % number_of_levels_, transparent=False)
+        plt.savefig(cwd + "/images/%d/inverse_chi_matrix_norm.png" % number_of_levels, transparent=False)
     plt.show()
 
     # CONDITION NUMBER
@@ -499,18 +488,18 @@ if plot_flag:  # other plots - matrix size and singular values
     ax2 = fig4.add_subplot(122)
     ax.title.set_text("chi matrix condition number")
     ax2.title.set_text("log plot")
-    ax.plot(np.arange(1, number_of_levels_ + 1), cond_number_chi_matrix, "b-", label="computed condition number")
-    ax.plot(np.arange(1, number_of_levels_ + 1), [mu_coefficient ** (-d * n / 2 - 1) for n in np.arange(1, number_of_levels_ + 1)], "g-", label="aimed theoretical condition number bound")
-    ax.plot(np.arange(1, number_of_levels_ + 1), [mu_coefficient ** (-d * n * (3 / 2)) for n in np.arange(1, number_of_levels_ + 1)], "r-", label="theoretical condition number bound")
+    ax.plot(np.arange(1, number_of_levels + 1), cond_number_chi_matrix, "b-", label="computed condition number")
+    ax.plot(np.arange(1, number_of_levels + 1), [mu_coefficient ** (-d * n / 2 - 1) for n in np.arange(1, number_of_levels + 1)], "g-", label="aimed theoretical condition number bound")
+    ax.plot(np.arange(1, number_of_levels + 1), [mu_coefficient ** (-d * n * (3 / 2)) for n in np.arange(1, number_of_levels + 1)], "r-", label="theoretical condition number bound")
     ax.legend()
     ax.set_xlabel('number of steps')
-    ax2.semilogy(np.arange(1, number_of_levels_ + 1), cond_number_chi_matrix, "b--", label="computed condition number")
-    ax2.semilogy(np.arange(1, number_of_levels_ + 1), [mu_coefficient ** (-d * n / 2 - 1) for n in np.arange(1, number_of_levels_ + 1)], "g--", label="aimed theoretical condition number bound")
-    ax2.semilogy(np.arange(1, number_of_levels_ + 1), [mu_coefficient ** (-d * n * (3 / 2)) for n in np.arange(1, number_of_levels_ + 1)], "r--", label="theoretical condition number bound")
+    ax2.semilogy(np.arange(1, number_of_levels + 1), cond_number_chi_matrix, "b--", label="computed condition number")
+    ax2.semilogy(np.arange(1, number_of_levels + 1), [mu_coefficient ** (-d * n / 2 - 1) for n in np.arange(1, number_of_levels + 1)], "g--", label="aimed theoretical condition number bound")
+    ax2.semilogy(np.arange(1, number_of_levels + 1), [mu_coefficient ** (-d * n * (3 / 2)) for n in np.arange(1, number_of_levels + 1)], "r--", label="theoretical condition number bound")
     ax2.legend()
     ax2.set_xlabel('number of steps')
     if save:
-        plt.savefig(cwd + "/images/%d/condition_number_chi_matrix.png" % number_of_levels_, transparent=False)
+        plt.savefig(cwd + "/images/%d/condition_number_chi_matrix.png" % number_of_levels, transparent=False)
     plt.show()
 
     # evaluate the singular values
@@ -518,7 +507,7 @@ if plot_flag:  # other plots - matrix size and singular values
     high_sv_count_1, high_sv_count_01, high_sv_count_10 = [], [], []
 
     # visualize the singular value at each level
-    for n in np.arange(number_of_levels_):
+    for n in np.arange(number_of_levels):
         svd_v = svd_values_vector[n]
         high_sv_count_01 += [np.sum(svd_v > 0.1)]
         high_sv_count_1 += [np.sum(svd_v > 1)]
@@ -531,7 +520,7 @@ if plot_flag:  # other plots - matrix size and singular values
         ax.plot(np.arange(len(svd_v)), np.ones(len(svd_v)), "r--")
         ax.plot(np.arange(len(svd_v)), np.ones(len(svd_v)) * 10, "r--")
         if save:
-            plt.savefig(cwd + "/images/%d/singular_values_level_%d.png" % (number_of_levels_, n), transparent=False)
+            plt.savefig(cwd + "/images/%d/singular_values_level_%d.png" % (number_of_levels, n), transparent=False)
         plt.show()
 
     # plot the analysis on the high singular values
@@ -540,12 +529,12 @@ if plot_flag:  # other plots - matrix size and singular values
     ax2 = fig6.add_subplot(222)
     ax3 = fig6.add_subplot(223)
     ax4 = fig6.add_subplot(224)
-    ax.plot(np.arange(1, number_of_levels_ + 1), [len(svd_n) for svd_n in svd_values_vector], "b-",
+    ax.plot(np.arange(1, number_of_levels + 1), [len(svd_n) for svd_n in svd_values_vector], "b-",
             label="total number of singular values"), ax.legend()
-    ax2.plot(np.arange(1, number_of_levels_ + 1), high_sv_count_1, "b-", label="eps = 1"), ax2.legend()
-    ax3.plot(np.arange(1, number_of_levels_ + 1), high_sv_count_01, "b-", label="eps = 0.1"), ax3.legend()
-    ax4.plot(np.arange(1, number_of_levels_ + 1), high_sv_count_10, "b-", label="eps = 10"), ax4.legend()
+    ax2.plot(np.arange(1, number_of_levels + 1), high_sv_count_1, "b-", label="eps = 1"), ax2.legend()
+    ax3.plot(np.arange(1, number_of_levels + 1), high_sv_count_01, "b-", label="eps = 0.1"), ax3.legend()
+    ax4.plot(np.arange(1, number_of_levels + 1), high_sv_count_10, "b-", label="eps = 10"), ax4.legend()
     if save:
-        plt.savefig(cwd + "/images/%d/number_of_singular_values_greater_than_eps.png" % number_of_levels_,
+        plt.savefig(cwd + "/images/%d/number_of_singular_values_greater_than_eps.png" % number_of_levels,
                     transparent=False)
     plt.show()

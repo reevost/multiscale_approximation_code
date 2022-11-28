@@ -41,14 +41,14 @@ def wendland_function(r, k=1, d=3):
     # r "points" where the function is evaluated. r is supposed to be ||x-y|| i.e. the norm of some point difference, so r in R^+.
     # k is degree of the function, who is C^2k.
     # d is the dimension of the embedding space.
-    if k == int(k):
+    if k == int(k):  # having odd d implies that the value of k is an arbitrary integer
         nu = int(d / 2) + k + 1  # optimal value for the purpose of the class function.
         progress_evaluation = 0
         for n in np.arange(0, k+1):
             progress_evaluation += beta(n, k, nu) * (r**n) * max(1-r, 0)**(nu+2*k+1)
         return progress_evaluation
     else:
-        # we expect even dimension here
+        # we expect even dimension here, i.e. non integer k (associated to even values of d)
         nu = d/2 + k + 1/2
         if 1 > r >= 0:
             result = integrate.quad(lambda t: t*(1-t)**nu * (t**2 - r**2)**(k-1) / (special.gamma(k) * 2**(k-1)), r, 1)

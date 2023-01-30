@@ -4,13 +4,13 @@ import scipy
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import os
-
+import csv
 import halton_points
 import wendland_functions
 import time
 
 plot_flag = True
-save = True
+save = False
 # Original paper: Multiscale analysis in Sobolev spaces on bounded domains - Holger Wendland
 tic_start = time.perf_counter()
 cwd = os.getcwd()  # get the working directory
@@ -52,7 +52,7 @@ def data_multilevel_structure(data, number_of_levels_=4, mu=0.5, starting_mesh_n
 
     # save the filtered set with the actual mesh norm in the list of nested sets
     data_nest_list += [np.array(new_data)]
-    print("The number of points in the level 1 is ", len(new_data))
+    print("The number of points in the level 1 is", len(new_data))
 
     for j_ in np.arange(1, number_of_levels_):
         # update the mesh norm
@@ -85,7 +85,7 @@ def data_multilevel_structure(data, number_of_levels_=4, mu=0.5, starting_mesh_n
             print("full at level", j_)
         # save the filtered set with the actual mesh norm in the list of nested sets
         data_nest_list += [np.array(new_data)]
-        print("The number of points in the level", j_ + 1, "is ", len(new_data))
+        print("The number of points in the level", j_ + 1, "is", len(new_data))
 
     return data_nest_list
 
@@ -97,7 +97,7 @@ def data_multilevel_structure(data, number_of_levels_=4, mu=0.5, starting_mesh_n
 domain_x = np.linspace(0, 1, 100)  # INPUT
 domain_y = np.linspace(0, 1, 100)  # INPUT
 domain_meshed_x, domain_meshed_y = np.meshgrid(domain_x, domain_y)
-d = 2
+d = 3
 
 
 # true function
@@ -110,7 +110,7 @@ def true_function(*domain_points):
 
 
 # given the samples on the domain we build the nested sequence of sets, and eventually save them to a file
-number_of_levels = 6  # INPUT
+number_of_levels = 5  # INPUT
 if d == 2:
     x, y = halton_points.halton_sequence(10000, 2)  # INPUT - data sites
     sampled_points = np.concatenate((np.array([x]).T, np.array([y]).T), axis=1)
@@ -128,11 +128,21 @@ else:  # we suppose to handle just dim = 2 or 3 for now.
     #     file.write("%f,%f,%f,%f\n" % (x[i], y[i], z[i], rhs[i]))
     # file.close()
 
+imported_set_name = "stanford_bunny_data"
+temp_arr = []
+with open(cwd + "/dataset/%s.csv" % imported_set_name, 'r') as csvfile:
+    # creating a csv reader object
+    csvreader = csv.reader(csvfile)
+    # extracting each data row one by one
+    for row in csvreader:
+        temp_arr.append([np.float64(i) for i in row])
+sampled_points = np.array(temp_arr)
 
-true_f_in_domain = true_function(domain_meshed_x, domain_meshed_y)
-mesh_norm_0, mu_coefficient = np.min([np.max(sampled_points, axis=0)[0] - np.min(sampled_points, axis=0)[0],
-                                      np.max(sampled_points, axis=0)[1] - np.min(sampled_points, axis=0)[
-                                          1]]) / 8, 0.5  # INPUT
+mu_coefficient = 0.5  # INPUT
+if d == 2:
+    mesh_norm_0 = np.min([np.max(sampled_points, axis=0)[0] - np.min(sampled_points, axis=0)[0], np.max(sampled_points, axis=0)[1] - np.min(sampled_points, axis=0)[1]]) / 8
+else:
+    mesh_norm_0 = np.min([np.max(sampled_points, axis=0)[0] - np.min(sampled_points, axis=0)[0], np.max(sampled_points, axis=0)[1] - np.min(sampled_points, axis=0)[1], np.max(sampled_points, axis=0)[2] - np.min(sampled_points, axis=0)[2]]) / 8
 
 nest = data_multilevel_structure(sampled_points, number_of_levels_=number_of_levels, starting_mesh_norm=mesh_norm_0, mu=mu_coefficient, nest_=True)
 mesh_norm_list = [mesh_norm_0 * mu_coefficient ** level for level in range(number_of_levels)]
@@ -143,13 +153,25 @@ print("evaluating the nest of sets and all the parameters in", time.perf_counter
 
 # nest plot
 color_map = plt.get_cmap("viridis")
-if plot_flag:
+if plot_flag & (d == 2):
     for i in np.arange(number_of_levels):
         plt.figure(figsize=[7, 7])
         plt.scatter(nest[i][:, 0], nest[i][:, 1], color=color_map(np.linspace(0, .8, number_of_levels))[i])
         plt.xlim([0, 1])
         plt.ylim([0, 1])
-        plt.title("subset $X_%d$" % (i + 1))
+        plt.title("subset $X_%d$ of the dataset %s" % (i + 1, imported_set_name))
+        plt.show()
+elif plot_flag & (d == 3):
+    for i in np.arange(number_of_levels):
+        fig = plt.figure(figsize=[7, 7])
+        ax = fig.add_subplot(projection='3d')
+        ax.set_axis_off()
+        ax.scatter(nest[i][:, 0], nest[i][:, 1], nest[i][:, 2], color=color_map(np.linspace(0, .8, number_of_levels))[i])
+        ax.set_aspect('equal', 'box')
+        ax.set_xlim([np.min(nest[i][:, 0]), np.max(nest[i][:, 0])])
+        ax.set_ylim([np.min(nest[i][:, 1]), np.max(nest[i][:, 1])])
+        ax.set_zlim([np.min(nest[i][:, 2]), np.max(nest[i][:, 2])])
+        plt.title("subset $X_%d$ of the dataset %s" % (i + 1, imported_set_name))
         plt.show()
 
 
@@ -399,8 +421,7 @@ if plot_flag:  # other plots - matrix size and singular values
 
     # plots of the norm compared with theoretical results
     chi_matrix_norm_vector = np.array([np.linalg.norm(chi_matrix[:n, :n], ord=2) for n in cumulative_points[1:]])
-    inv_chi_matrix_norm_vector = np.array(
-        [np.linalg.norm(inv_chi_matrix[:n, :n], ord=2) for n in cumulative_points[1:]])
+    inv_chi_matrix_norm_vector = np.array([np.linalg.norm(inv_chi_matrix[:n, :n], ord=2) for n in cumulative_points[1:]])
     cond_number_chi_matrix = chi_matrix_norm_vector * inv_chi_matrix_norm_vector
 
     # CHI MATRIX
@@ -409,16 +430,16 @@ if plot_flag:  # other plots - matrix size and singular values
     ax2 = fig2.add_subplot(222)
     ax.title.set_text("chi matrix norm")
     ax2.title.set_text("log plot")
-    ax.plot(np.arange(1, number_of_levels + 1), chi_matrix_norm_vector, "b-", label="computed norm")
     ax.plot(np.arange(1, number_of_levels + 1),
             [mu_coefficient ** (-d * n / 2) for n in np.arange(1, number_of_levels + 1)], "r-",
             label="theoretical norm bound")
+    ax.plot(np.arange(1, number_of_levels + 1), chi_matrix_norm_vector, "b-", label="computed norm")
     ax.legend()
     ax.set_xlabel('number of steps')
-    ax2.semilogy(np.arange(1, number_of_levels + 1), chi_matrix_norm_vector, "b--", label="computed norm")
     ax2.semilogy(np.arange(1, number_of_levels + 1),
                  [mu_coefficient ** (-d * n / 2) for n in np.arange(1, number_of_levels + 1)], "r--",
                  label="theoretical norm bound")
+    ax2.semilogy(np.arange(1, number_of_levels + 1), chi_matrix_norm_vector, "b--", label="computed norm")
     ax2.legend()
     ax2.set_xlabel('number of steps')
     ax3 = fig2.add_subplot(223)
@@ -444,21 +465,60 @@ if plot_flag:  # other plots - matrix size and singular values
     plt.show()
 
     # INVERSE CHI MATRIX
+
+    # 1-norm
+    chi_matrix_1_norm_vector = np.array([np.linalg.norm(inv_chi_matrix[:n, :n], ord=1) for n in cumulative_points[1:]])
+    chi_matrix_inf_norm_vector = np.array([np.linalg.norm(inv_chi_matrix[:n, :n], ord=np.inf) for n in cumulative_points[1:]])
+    fig_3 = plt.figure("inverse chi matrix 1 and infinity norm", figsize=[15, 15])
+    ax = fig_3.add_subplot(221)
+    ax2 = fig_3.add_subplot(222)
+    ax.title.set_text("inverse chi matrix 1-norm")
+    ax2.title.set_text("log plot - inverse chi matrix 1-norm")
+    ax.plot(np.arange(1, number_of_levels + 1), [mu_coefficient ** (- d * n * (3 / 2)) for n in np.arange(1, number_of_levels + 1)], "r-", label="theoretical 1-norm bound")
+    # ax.plot(np.arange(1, number_of_levels + 1), [mu_coefficient ** tau for n in np.arange(1, number_of_levels + 1)], "g-", label="aimed theoretical 1-norm bound")
+    ax.plot(np.arange(1, number_of_levels + 1), chi_matrix_1_norm_vector, "b-", label="computed 1-norm of the inverse")
+    ax.legend()
+    ax.set_xlabel('number of steps')
+    ax2.semilogy(np.arange(1, number_of_levels + 1), [mu_coefficient ** (- d * n * (3 / 2)) for n in np.arange(1, number_of_levels + 1)], "r--", label="theoretical 1-norm bound")
+    # ax2.semilogy(np.arange(1, number_of_levels + 1), [mu_coefficient ** tau for n in np.arange(1, number_of_levels + 1)], "g--", label="aimed theoretical 1-norm bound")
+    ax2.semilogy(np.arange(1, number_of_levels + 1), chi_matrix_1_norm_vector, "b--", label="computed 1-norm of the inverse")
+    ax2.legend()
+    ax2.set_xlabel('number of steps')
+    # inf-norm
+    ax3 = fig_3.add_subplot(223)
+    ax4 = fig_3.add_subplot(224)
+    ax3.title.set_text("inverse chi matrix inf-norm")
+    ax4.title.set_text("log plot - inverse chi matrix inf-norm")
+    ax3.plot(np.arange(1, number_of_levels + 1), [mu_coefficient ** (- d * n / 2) for n in np.arange(1, number_of_levels + 1)], "r-", label="theoretical inf-norm bound")
+    # ax3.plot(np.arange(1, number_of_levels + 1), [mu_coefficient ** tau for n in np.arange(1, number_of_levels + 1)], "g-", label="aimed theoretical inf-norm bound")
+    ax3.plot(np.arange(1, number_of_levels + 1), chi_matrix_inf_norm_vector, "b-", label="computed inf-norm of the inverse")
+    ax3.legend()
+    ax3.set_xlabel('number of steps')
+    ax4.semilogy(np.arange(1, number_of_levels + 1), [mu_coefficient ** (- d * n / 2) for n in np.arange(1, number_of_levels + 1)], "r--", label="theoretical inf-norm bound")
+    # ax4.semilogy(np.arange(1, number_of_levels + 1), [mu_coefficient ** tau for n in np.arange(1, number_of_levels + 1)], "g--", label="aimed theoretical inf-norm bound")
+    ax4.semilogy(np.arange(1, number_of_levels + 1), chi_matrix_inf_norm_vector, "b--", label="computed inf-norm of the inverse")
+    ax4.legend()
+    ax4.set_xlabel('number of steps')
+    if save:
+        plt.savefig(cwd + "/images/%d/inv_chi_matrix_1_inf_norm.png" % number_of_levels, transparent=False)
+    plt.show()
+
+    # inverse matrix 2-norm
     fig3 = plt.figure("inverse chi matrix norm", figsize=[15, 15])
     ax = fig3.add_subplot(221)
     ax2 = fig3.add_subplot(222)
     ax.title.set_text("inverse chi matrix norm")
     ax2.title.set_text("log plot")
-    ax.plot(np.arange(1, number_of_levels + 1), inv_chi_matrix_norm_vector, "b-", label="computed norm")
     ax.plot(np.arange(1, number_of_levels + 1),
             [mu_coefficient ** (-d * n) for n in np.arange(1, number_of_levels + 1)], "r-",
             label="theoretical norm bound")
+    ax.plot(np.arange(1, number_of_levels + 1), inv_chi_matrix_norm_vector, "b-", label="computed norm")
     ax.legend()
     ax.set_xlabel('number of steps')
-    ax2.semilogy(np.arange(1, number_of_levels + 1), inv_chi_matrix_norm_vector, "b--", label="computed norm")
     ax2.semilogy(np.arange(1, number_of_levels + 1),
                  [mu_coefficient ** (-n * d) for n in np.arange(1, number_of_levels + 1)], "r--",
                  label="theoretical norm bound")
+    ax2.semilogy(np.arange(1, number_of_levels + 1), inv_chi_matrix_norm_vector, "b--", label="computed norm")
     ax2.legend()
     ax2.set_xlabel('number of steps')
     ax3 = fig3.add_subplot(223)

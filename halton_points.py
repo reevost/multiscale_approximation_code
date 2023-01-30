@@ -25,7 +25,7 @@ def separation_distance(points_array):
 def next_prime():
     def is_prime(num):
         # "Checks if num is a prime value"
-        for i in range(2, int(num**0.5)+1):
+        for i in np.arange(2, int(np.sqrt(num))+1):
             if(num % i) == 0:
                 return False
         return True

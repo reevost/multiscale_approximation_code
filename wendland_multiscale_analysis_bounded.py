@@ -120,13 +120,18 @@ def data_multilevel_structure(data, number_of_levels_=4, mu=0.5, starting_mesh_n
 # =================================================================================================================================================================================================================================================================================
 d = 2  # dimension.
 points_on_each_axis = 51
-number_of_levels = 7  # INPUT
+number_of_levels = 4  # INPUT
+
+
+# frank function
+def frank_function(points):
+    return 0.75*np.exp(-(9*points[0]-2)**2/4-(9*points[1]-2)**2/4)+0.75*np.exp(-(9*points[0]+1)**2/49-(9*points[1]+1)**2/49)+0.5*np.exp(-(9*points[0]-7)**2/4-(9*points[1]-3)**2/4)-0.2*np.exp(-(9*points[0]-4)**2-(9*points[1]-7)**2)
 
 
 # true function
 def true_function(*domain_points_set):
-    def loc_f(lx): return np.exp(-lx ** 4) * lx  # INPUT
     sol = np.zeros(domain_points_set[0].shape)
+    def loc_f(lx): return np.exp(-lx ** 4) * lx  # INPUT
     for i_axes in domain_points_set:
         sol += loc_f(i_axes)
     return sol
@@ -170,32 +175,31 @@ else:  # we suppose to handle just dim = 2 or 3 for now.
 f_on_domain = true_function(domain_meshed_x, domain_meshed_y)
 mesh_norm_0, mu_coefficient = np.min([np.max(sampled_points, axis=0)[0] - np.min(sampled_points, axis=0)[0],
                                       np.max(sampled_points, axis=0)[1] - np.min(sampled_points, axis=0)[
-                                          1]]) / 8, 0.5  # INPUT
-gamma = 1  # INPUT
+                                          1]]) / 4, 0.5  # INPUT
+gamma = 0.5  # INPUT
 
-nest = data_multilevel_structure(sampled_points, number_of_levels_=number_of_levels, starting_mesh_norm=0.5,
+nest = data_multilevel_structure(sampled_points, number_of_levels_=number_of_levels, starting_mesh_norm=0.25,
                                  mu=mu_coefficient, nest_flag=True)
 mesh_norm_list = [halton_points.fill_distance(nest[0], domain_points) * mu_coefficient ** level for level in
                   range(number_of_levels)]
-nu_coefficient = 4  # INPUT in this case nu has the highest possible value
-# nu_coefficient = gamma/mu_coefficient  # INPUT in this case nu has the lowest possible value
+nu_coefficient = gamma/mu_coefficient  # INPUT
 print("evaluating the nest of sets and all the parameters in", time.perf_counter() - tic_start)
 
 
 # nest plot
-# color_map = plt.get_cmap("viridis")
-# if plot_flag:
-#     for i in np.arange(number_of_levels):
-#         plt.figure(figsize=[7, 7])
-#         plt.scatter(nest[i][:, 0], nest[i][:, 1], color=color_map(np.linspace(0, .8, number_of_levels))[i])
-#         plt.xlim([0, 1])
-#         plt.ylim([0, 1])
-#         plt.title("subset $X_%d$" % (i + 1))
-#         plt.show()
+color_map = plt.get_cmap("viridis")
+if plot_flag:
+    for i in np.arange(number_of_levels):
+        plt.figure(figsize=[7, 7])
+        plt.scatter(nest[i][:, 0], nest[i][:, 1], color=color_map(np.linspace(0, .8, number_of_levels))[i])
+        plt.xlim([0, 1])
+        plt.ylim([0, 1])
+        plt.title("subset $X_%d$" % (i + 1))
+        plt.show()
 
 
 def matrix_multiscale_approximation(nested_set, right_hand_side, h_list, nu, wendland_coefficients=(1, 3),
-                                    solving_technique="gmres", domain=None, in_plot=True):
+                                    solving_technique="gmres", domain=None, in_plot=False):
     # Function that makes the interpolation using the multiscale approximation technique (see holger paper)
     # PARAMETERS ========================================================================================================================
     # domain[0] : ndarray. Domain where the interpolator is evaluated. If domain is None, instead of evaluating the functions on the domain we store every interpolator as function
@@ -226,7 +230,7 @@ def matrix_multiscale_approximation(nested_set, right_hand_side, h_list, nu, wen
     function_approximation_list, error_approximation_list = [np.zeros((domain[0].shape[0], 1))], [
         domain[1].reshape((domain[0].shape[0], -1))]  # set the initial values for f and e
     number_of_levels_ = len(nested_set)
-    tolerance = 10 ** -1  # tolerance for the solver
+    tolerance = 10 ** -8  # tolerance for the solver
     print("solving technique:", solving_technique)
     if solving_technique in ["cg", "gmres"]:
         # initializing the rhs and the block matrix
@@ -416,7 +420,7 @@ function_approximation, error_approximation = matrix_multiscale_approximation(ne
                                                                               h_list=mesh_norm_list, nu=nu_coefficient,
                                                                               domain=(domain_points, f_on_domain))
 
-# plot of the true function / approximation function / approxigmresmation error
+# plot of the true function / approximation function / approximation error
 if plot_flag:
     fig = plt.figure(figsize=[25, 15])
     for i in range(number_of_levels + 1):
@@ -436,24 +440,7 @@ if plot_flag:
                         linewidth=0, antialiased=False)
         ax.set_title("approximation error at step %d" % i, fontsize="small")
     if save:
-        plt.savefig(cwd + "/images/%d/multiscale_approximation%s.png" % (number_of_levels, chosen_solving_technique),
+        plt.savefig(cwd + "/images/%d/multiscale_approximation_nu2_%s.png" % (number_of_levels, chosen_solving_technique),
                     transparent=False)
     plt.show()
 
-level_tol_iteration_grid_full_gmres = np.array([[1, 1, 1, 2, 2, 3, 3, 3, 4],
-                                                [1, 2, 3, 5, 5, 6, 8, 8, 9],
-                                                [1, 4, 6, 7, 11, 11, 15, 17, 18],
-                                                [1, 4, 8, 12, 18, 19, 24, 29, 31],
-                                                [1, 6, 14, 22, 33, 39, 44, 54, 62],
-                                                [1, 6, 30, 42, 53, 70, 82, 109, 122],
-                                                [1, 7, 50, 63, 86, 131, 182, 246, 276]
-                                                ])  # gmres fashion
-
-level_tol_iteration_grid_iter_cg = np.array([[1, 2, 1, 2, 2, 3, 3, 3, 4],
-                                             [1, 2, 3, 5, 5, 6, 8, 8, 9],
-                                             [1, 2, 6, 7, 11, 11, 15, 17, 18],
-                                             [1, 2, 8, 12, 18, 19, 24, 29, 31],
-                                             [1, 2, 14, 22, 33, 39, 44, 54, 62],
-                                             [1, 2, 30, 42, 53, 70, 82, 109, 122],
-                                             [1, 7, 50, 63, 86, 131, 182, 246, 276]
-                                             ])  # gmres fashion

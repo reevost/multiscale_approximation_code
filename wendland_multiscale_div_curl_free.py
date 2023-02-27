@@ -119,7 +119,7 @@ def data_multilevel_structure(data, number_of_levels_=4, mu=0.5, starting_mesh_n
 # =================================================================================================================================================================================================================================================================================
 d = 3  # dimension.
 points_on_each_axis = 101 # INPUT
-number_of_levels = 4  # INPUT
+number_of_levels = 3  # INPUT
 
 
 # given the samples on the domain we build the nested sequence of sets, and eventually save them to a file
@@ -163,8 +163,8 @@ if plot_flag:
         plt.show()
 
 
-def matrix_multiscale_approximation(nested_set, right_hand_side, h_list, nu, wendland_coefficients=(2, 3),
-                                    solving_technique="gmres", domain=None, in_plot=False):
+def matrix_multiscale_approximation(nested_set, right_hand_side, h_list, nu, wendland_coefficients=(3, 3),
+                                    solving_technique="gmres", domain=None):
     # Function that makes the interpolation using the multiscale approximation technique (see holger paper)
     # PARAMETERS ========================================================================================================================
     # domain[0] : ndarray. Domain where the interpolator is evaluated. If domain is None, instead of evaluating the functions on the domain we store every interpolator as function
@@ -192,8 +192,9 @@ def matrix_multiscale_approximation(nested_set, right_hand_side, h_list, nu, wen
 
     # At a certain point the controls for the parameters types and shapes should be included.
 
-    function_approximation_list, error_approximation_list = [np.zeros((domain[0].shape[0], 1))], [
-        domain[1].reshape((domain[0].shape[0], -1))]  # set the initial values for f and e
+    # set the initial values for f and e, just used to store the evolution of the interpolation and the error. Used for representation
+    error_approximation_list = [domain[1].reshape((domain[0].shape[0], -1))]
+    function_approximation_list = [np.zeros(error_approximation_list[0].shape)]
     number_of_levels_ = len(nested_set)
     tolerance = 10 ** -8  # tolerance for the solver
     print("solving technique:", solving_technique)
@@ -203,40 +204,26 @@ def matrix_multiscale_approximation(nested_set, right_hand_side, h_list, nu, wen
         interpolation_block_matrix = np.array([])
         tic = time.perf_counter()
 
-        for level in np.arange(
-                number_of_levels_):  # routine starting - solving the problem building the triangular block matrix
+        for level in np.arange(number_of_levels_):  # routine starting - solving the problem building the triangular block matrix
             sub_level_set = nested_set[level]
             # mesh_norm_j = halton_points.fill_distance(sub_level_set, 10**-6) - knowing that will be expensive
             delta_j = nu * h_list[level]  # scaling parameter of the compactly supported rbf
 
             # add to the list of function rhs the values of the actual set
-            rhs_f_list += [np.array(
-                [right_hand_side[:, -1:][~np.abs(right_hand_side[:, :-1] - tmp_p).any(axis=1)][0] for tmp_p in
-                 sub_level_set])]  # should be parallelized
+            rhs_f_list += [np.array([right_hand_side[:, -d:][~np.abs(right_hand_side[:, :-d] - tmp_p).any(axis=1)][0] for tmp_p in sub_level_set]).reshape((-1, 1))]  # should be parallelized
 
             # evaluate A_level and B_jk for k=level.
             # the compactly supported rbf chosen is delta_j^-d * Phi(||x-y||/delta_j), where Phi is a wendland function
-            A_j = sparse.csr_matrix([[(delta_j ** -len(
-                right_hand_side[:, :-1][0])) * wendland_functions.wendland_function(np.linalg.norm(a - b) / delta_j,
-                                                                                    k=wendland_coefficients[0],
-                                                                                    d=wendland_coefficients[1]) for b in
-                                      sub_level_set] for a in sub_level_set])  # should be parallelized
+            A_j = sparse.csr_matrix(np.block([[(delta_j ** -len(
+                right_hand_side[:, :-1][0])) * wendland_functions.div_wendland(a-b, c=delta_j, d=wendland_coefficients[0], k=wendland_coefficients[1], dim=d) for b in
+                                      sub_level_set] for a in sub_level_set]))  # should be parallelized
 
-            if in_plot:
-                plt.figure(100 + level)
-                plt.spy(A_j, marker=".", markersize=2)
-                plt.title("sparsity of matrix $A_{%d}$" % (level + 1))
-                if save:
-                    plt.savefig(cwd + "/images/A_%d_sparsity_pattern.png" % (number_of_levels + 1), transparent=False)
-                plt.show()
             column_level_list = [
                 A_j]  # the list of all matrix on column "level" on the big triangular block matrix. i.e. A_level and B_jk with fixed k=level and variable j=level, ..., number_of_levels.
             for j in np.arange(level + 1, number_of_levels_):
                 # here we add B_jk for K=level, and j=level+1, ..., number of levels
-                column_level_list += [np.array([[(delta_j ** -len(
-                    right_hand_side[:, :-1][0])) * wendland_functions.wendland_function(np.linalg.norm(a - b) / delta_j,
-                                                                                        k=wendland_coefficients[0],
-                                                                                        d=wendland_coefficients[1]) for
+                column_level_list += [np.block([[(delta_j ** -len(
+                    right_hand_side[:, :-1][0])) * wendland_functions.div_wendland(a-b, c=delta_j, d=wendland_coefficients[0], k=wendland_coefficients[1], dim=d) for
                                                  b in sub_level_set] for a in nested_set[j]])]  # should be parallelized
             column_level = sparse.vstack(column_level_list)
 
@@ -245,21 +232,14 @@ def matrix_multiscale_approximation(nested_set, right_hand_side, h_list, nu, wen
             else:
                 # add a block of zeros over the other matrices with sparse.bsr_matrix((row_length, column_length), dtype=np.int8).toarray()
                 column_level = sparse.vstack([sparse.bsr_matrix(
-                    (sum([len(nested_set[jj]) for jj in np.arange(level)]), len(nested_set[level])),
+                    (d*sum([len(nested_set[jj]) for jj in np.arange(level)]), d*len(nested_set[level])),
                     dtype=np.int8).toarray(), column_level])
                 # concatenate the columns
                 interpolation_block_matrix = sparse.hstack([interpolation_block_matrix, column_level])
             print("built column", level + 1)
 
         # evaluate the column of the right-hand side f in the points of the subset sequence until the current subset
-        rhs_f = np.concatenate(rhs_f_list)
-        if in_plot:
-            plt.figure(1000)
-            plt.spy(interpolation_block_matrix, marker=".", markersize=2)
-            plt.title("sparsity of matrix $T_{%d}$" % number_of_levels_)
-            if save:
-                plt.savefig(cwd + "/images/T_%d_sparsity_pattern.png" % number_of_levels_, transparent=False)
-            plt.show()
+        rhs_f = np.vstack(rhs_f_list)
         # solve find the list of coefficient alpha_j of the approximant at the level j
         if solving_technique == "gmres":
             iter_counter = IterativeCounter()
@@ -277,22 +257,20 @@ def matrix_multiscale_approximation(nested_set, right_hand_side, h_list, nu, wen
         print("time needed to build and solve the system: ", time.perf_counter() - tic, "seconds")
         print("iteration needed for converge with tol equal to 10**-position:", iter_counter.iterlist)
         cumulative_number_of_points = 0
-        for level in np.arange(
-                number_of_levels_):  # routine for the evaluation on the domain of the interpolants at the different levels
+        for level in np.arange(number_of_levels_):  # routine for the evaluation on the domain of the interpolants at the different levels
             tic = time.perf_counter()
             sub_level_set = nested_set[level]
-            number_of_points_at_level_j = len(sub_level_set)
+            number_of_points_at_level_j = d*len(sub_level_set)
             # mesh_norm_j = halton_points.fill_distance(sub_level_set, 10**-6)  # TO DO LIST
             # delta_j = mesh_norm_j * nu  # scaling parameter of the compactly supported rbf
             delta_j = nu * h_list[level]  # scaling parameter of the compactly supported rbf
 
             # recovering alpha_j
-            alpha_j = alpha_full_vector[
-                      cumulative_number_of_points:cumulative_number_of_points + number_of_points_at_level_j]
+            alpha_j = alpha_full_vector[cumulative_number_of_points:cumulative_number_of_points + number_of_points_at_level_j]
 
             # compute the approximant at the step j: s_j(x) = [Phi_j(x, x_j)] @ alpha_j
-            approximant_domain_j = np.array([[sparse.csr_matrix(np.array([[(delta_j ** -len(
-                right_hand_side[:, :-1][0])) * wendland_functions.wendland_function(np.linalg.norm(p_ - x_j) / delta_j)
+            approximant_domain_j = np.array([[sparse.csr_matrix(np.block([[(delta_j ** -len(
+                right_hand_side[:, :-1][0])) * wendland_functions.div_wendland(p_-x_j, c=delta_j, d=wendland_coefficients[0], k=wendland_coefficients[1], dim=d)
                                                                            for x_j in sub_level_set]])).dot(alpha_j)[0]
                                               for p_ in domain[0]]]).T
             cumulative_number_of_points += number_of_points_at_level_j  # in order to recover the correct alpha_j
@@ -319,8 +297,7 @@ def matrix_multiscale_approximation(nested_set, right_hand_side, h_list, nu, wen
             delta_j = nu * h_list[level]  # scaling parameter of the compactly supported rbf
             # print("delta", delta_j)
             # evaluate A_level.
-            A_j = sparse.csr_matrix([[(delta_j ** -d) * wendland_functions.wendland_function(
-                np.linalg.norm(a - b) / delta_j, k=wendland_coefficients[0], d=wendland_coefficients[1]) for b in
+            A_j = sparse.csr_matrix([[(delta_j ** -d) * wendland_functions.div_wendland(a - b, c=delta_j, d=wendland_coefficients[0], k=wendland_coefficients[1], dim=d) for b in
                                       sub_level_set] for a in sub_level_set])  # should be parallelized
             # print(A_j)
             # print("rhs\n", np.array([right_hand_side[:, :][~np.abs(right_hand_side[:, :-1] - tmp_p).any(axis=1)][0] for tmp_p in sub_level_set]))
@@ -328,9 +305,7 @@ def matrix_multiscale_approximation(nested_set, right_hand_side, h_list, nu, wen
             for k in np.arange(level):
                 delta_k = nu * h_list[k]
                 B_lk = sparse.csr_matrix([[(delta_k ** -len(
-                    right_hand_side[:, :-1][0])) * wendland_functions.wendland_function(np.linalg.norm(a - b) / delta_k,
-                                                                                        k=wendland_coefficients[0],
-                                                                                        d=wendland_coefficients[1]) for
+                    right_hand_side[:, :-1][0])) * wendland_functions.div_wendland(a - b, c=delta_k, d=wendland_coefficients[0], k=wendland_coefficients[1], dim=d) for
                                            b in nested_set[k]] for a in sub_level_set])  # should be parallelized
                 rhs_f_level -= B_lk.dot(alpha_list[k].reshape(len(nested_set[k]),
                                                               1))  # alpha_k has shape (N_k,) when here is needed (N_k, 1).
@@ -356,9 +331,7 @@ def matrix_multiscale_approximation(nested_set, right_hand_side, h_list, nu, wen
             delta_j = nu * h_list[level]  # scaling parameter of the compactly supported rbf
 
             # compute the approximant at the step j: s_j(x) = [Phi_j(x, x_j)] @ alpha_j
-            approximant_domain_j = np.array([[sparse.csr_matrix(np.array([[(
-                                                                                       delta_j ** -d) * wendland_functions.wendland_function(
-                np.linalg.norm(p_ - x_j) / delta_j) for x_j in sub_level_set]])).dot(alpha_list[level])[0] for p_ in
+            approximant_domain_j = np.array([[sparse.csr_matrix(np.array([[(delta_j ** -d) * wendland_functions.div_wendland(p_-x_j, c=delta_j, d=wendland_coefficients[0], k=wendland_coefficients[1], dim=d) for x_j in sub_level_set]])).dot(alpha_list[level])[0] for p_ in
                                               domain[0]]]).T
             # update error_approximation and function_approximation
             function_approximation_list += [function_approximation_list[-1] + approximant_domain_j]
@@ -379,6 +352,5 @@ def matrix_multiscale_approximation(nested_set, right_hand_side, h_list, nu, wen
 #             temp_arr.append([np.float64(i) for i in row])
 #     imported_nest.append(np.array(temp_arr))
 
-chosen_solving_technique = "multistep_iteration"  # out of "gmres", "cg", "multistep_iteration"
-# function_approximation, error_approximation = matrix_multiscale_approximation(nested_set=nest, right_hand_side=rhs, solving_technique=chosen_solving_technique, h_list=mesh_norm_list, nu=nu_coefficient, domain=(domain_points, domain_points))
-
+chosen_solving_technique = "gmres"  # out of "gmres", "cg", "multistep_iteration"
+function_approximation, error_approximation = matrix_multiscale_approximation(nested_set=nest, right_hand_side=rhs, solving_technique=chosen_solving_technique, h_list=mesh_norm_list, nu=nu_coefficient, domain=(domain_points, domain_points))

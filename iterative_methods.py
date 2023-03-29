@@ -140,7 +140,7 @@ def matrix_multiscale_approximation(nested_set, right_hand_side, h_list, nu, wen
             # noinspection PyUnresolvedReferences
             alpha_full_vector, iter_full_system = scipy.sparse.linalg.gmres(interpolation_block_matrix, rhs_f, tol=tolerance, callback=iter_counter)
         elif solving_technique == "cg":
-            iter_counter = IterativeCounter(solver="cg")
+            iter_counter = IterativeCounter(input_type="x")
             # noinspection PyUnresolvedReferences
             alpha_full_vector, iter_full_system = scipy.sparse.linalg.cg(
                 interpolation_block_matrix.T @ interpolation_block_matrix, interpolation_block_matrix.T @ rhs_f,

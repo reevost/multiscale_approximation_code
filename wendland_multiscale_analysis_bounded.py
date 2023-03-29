@@ -18,16 +18,16 @@ cwd = os.getcwd()  # get the working directory
 
 
 class IterativeCounter(object):
-    def __init__(self, disp=True, solver="gmres"):
+    def __init__(self, disp=True, input_type="residual"):
         self._disp = disp
-        self.solver = solver
+        self.input_type = input_type
         self.niter = 0
         self.exp = 0
         self.iterlist = []
 
     def __call__(self, rk=None):
         self.niter += 1
-        if self._disp & (self.solver == "gmres"):
+        if self._disp & (self.input_type == "residual"):
             # print('iter %3i\trk = %s' % (self.niter, str(rk)))
             while rk < 10 ** -self.exp:
                 self.exp += 1
@@ -302,7 +302,7 @@ def matrix_multiscale_approximation(nested_set, right_hand_side, h_list, nu, wen
             alpha_full_vector, iter_full_system = scipy.sparse.linalg.gmres(interpolation_block_matrix, rhs_f,
                                                                             tol=tolerance, callback=iter_counter)
         elif solving_technique == "cg":
-            iter_counter = IterativeCounter(solver="cg")
+            iter_counter = IterativeCounter(input_type="x")
             # noinspection PyUnresolvedReferences
             alpha_full_vector, iter_full_system = scipy.sparse.linalg.cg(
                 interpolation_block_matrix.T @ interpolation_block_matrix, interpolation_block_matrix.T @ rhs_f,
@@ -372,7 +372,7 @@ def matrix_multiscale_approximation(nested_set, right_hand_side, h_list, nu, wen
 
             # print("rhs_updated\n", rhs_f_level)
             # solve find the list of coefficient alpha_j of the approximant at the level j
-            iter_counter = IterativeCounter(solver="cg")
+            iter_counter = IterativeCounter(input_type="x")
             # noinspection PyUnresolvedReferences
             alpha_val, iter_val = scipy.sparse.linalg.cg(A_j, rhs_f_level, tol=tolerance, callback=iter_counter)
             print("list of iteration needed for converge of step", level+1, "with tol", tolerance, ":",
@@ -443,4 +443,3 @@ if plot_flag:
         plt.savefig(cwd + "/images/%d/multiscale_approximation_nu2_%s.png" % (number_of_levels, chosen_solving_technique),
                     transparent=False)
     plt.show()
-

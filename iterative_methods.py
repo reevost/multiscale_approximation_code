@@ -5,16 +5,16 @@ import time
 
 
 class IterativeCounter(object):
-    def __init__(self, disp=True, solver="gmres"):
+    def __init__(self, disp=True, input_type="residual"):
         self._disp = disp
-        self.solver = solver
+        self.input_type = input_type
         self.niter = 0
         self.exp = 0
         self.iterlist = []
 
     def __call__(self, rk=None):
         self.niter += 1
-        if self._disp & (self.solver == "gmres"):
+        if self._disp & (self.input_type == "residual"):
             # print('iter %3i\trk = %s' % (self.niter, str(rk)))
             while rk < 10 ** -self.exp:
                 self.exp += 1
@@ -23,12 +23,18 @@ class IterativeCounter(object):
             self.iterlist = self.niter  # just save the last value
 
 
-def jacobi(A, b, eps=10 ** -8, x=None):
+def jacobi(A, b, eps=10 ** -8, x_0=None, callback=None):
     """Solves the equation Ax=b via the Jacobi iterative method."""
     # Create an initial guess if needed
-    if x is None:
+    if x_0 is None:
         x = np.zeros(len(A[0]))
-
+    else:
+        if len(x_0.shape) == 2:
+            x = x_0.reshape((-1,))
+        else:
+            x = x_0
+    if len(b.shape) == 2:
+        b = b.reshape((-1, ))
     # Create a vector of the diagonal elements of A
     # and subtract them from A
     D = np.diag(A)
@@ -39,6 +45,8 @@ def jacobi(A, b, eps=10 ** -8, x=None):
     while r > eps:
         x = (b - np.dot(R, x)) / D
         r = np.linalg.norm(b - np.dot(A, x))
+        if callback is not None:
+            callback(r)
     return x
 
 
@@ -199,7 +207,7 @@ def matrix_multiscale_approximation(nested_set, right_hand_side, h_list, nu, wen
 
             # print("rhs_updated\n", rhs_f_level)
             # solve find the list of coefficient alpha_j of the approximant at the level j
-            iter_counter = IterativeCounter(solver="cg")
+            iter_counter = IterativeCounter(input_type="x")
             # noinspection PyUnresolvedReferences
             alpha_val, iter_val = scipy.sparse.linalg.cg(A_j, rhs_f_level, tol=tolerance, callback=iter_counter)
             print("list of iteration needed for converge of step", level + 1, "with tol", tolerance, ":", iter_counter.iterlist)
